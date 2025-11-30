@@ -1,13 +1,103 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCarSchema, insertBookingSchema } from "@shared/schema";
+import { insertCarSchema, insertBookingSchema, signupSchema, loginSchema } from "@shared/schema";
 import { z } from "zod";
+
+declare global {
+  namespace Express {
+    interface Request {
+      session: any;
+    }
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Auth routes
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const validatedData = signupSchema.parse(req.body);
+      
+      const existingUser = await storage.getUserByUsername(validatedData.username);
+      if (existingUser) {
+        return res.status(400).json({ error: "Tên đăng nhập đã tồn tại" });
+      }
+      
+      const user = await storage.createUser({
+        username: validatedData.username,
+        password: validatedData.password,
+        role: "customer",
+      });
+      
+      req.session.userId = user.id;
+      res.status(201).json({ 
+        id: user.id, 
+        username: user.username, 
+        role: user.role 
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dữ liệu không hợp lệ", details: error.errors });
+      }
+      res.status(500).json({ error: "Không thể đăng ký" });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const validatedData = loginSchema.parse(req.body);
+      
+      const user = await storage.authenticateUser(validatedData.username, validatedData.password);
+      if (!user) {
+        return res.status(401).json({ error: "Tên đăng nhập hoặc mật khẩu không đúng" });
+      }
+      
+      req.session.userId = user.id;
+      res.json({ 
+        id: user.id, 
+        username: user.username, 
+        role: user.role 
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dữ liệu không hợp lệ", details: error.errors });
+      }
+      res.status(500).json({ error: "Không thể đăng nhập" });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err: any) => {
+      if (err) {
+        return res.status(500).json({ error: "Không thể đăng xuất" });
+      }
+      res.json({ message: "Đã đăng xuất" });
+    });
+  });
+
+  app.get("/api/auth/me", async (req, res) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Chưa đăng nhập" });
+    }
+    
+    try {
+      const user = await storage.getUser(req.session.userId);
+      if (!user) {
+        return res.status(401).json({ error: "Người dùng không tồn tại" });
+      }
+      res.json({ 
+        id: user.id, 
+        username: user.username, 
+        role: user.role 
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Có lỗi xảy ra" });
+    }
+  });
 
   app.get("/api/cars", async (req, res) => {
     try {

@@ -1,10 +1,12 @@
 import { type User, type InsertUser, type Car, type InsertCar, type Booking, type InsertBooking, type BookingWithCar } from "@shared/schema";
 import { randomUUID } from "crypto";
+import * as bcryptjs from "bcryptjs";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  authenticateUser(username: string, password: string): Promise<User | undefined>;
   
   getCars(): Promise<Car[]>;
   getCar(id: string): Promise<Car | undefined>;
@@ -204,8 +206,24 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id, role: "customer" };
+    const hashedPassword = await bcryptjs.hash(insertUser.password, 10);
+    const user: User = { 
+      id, 
+      username: insertUser.username,
+      hashedPassword,
+      role: insertUser.role || "customer"
+    };
     this.users.set(id, user);
+    return user;
+  }
+
+  async authenticateUser(username: string, password: string): Promise<User | undefined> {
+    const user = await this.getUserByUsername(username);
+    if (!user) return undefined;
+    
+    const isPasswordValid = await bcryptjs.compare(password, user.hashedPassword);
+    if (!isPasswordValid) return undefined;
+    
     return user;
   }
 
@@ -239,19 +257,23 @@ export class MemStorage implements IStorage {
 
   async getBookings(): Promise<BookingWithCar[]> {
     const bookings = Array.from(this.bookings.values());
-    return bookings.map((booking) => ({
-      ...booking,
-      car: this.cars.get(booking.carId) as Car,
-    })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return bookings.map((booking) => {
+      const car = this.cars.get(booking.carId);
+      return {
+        ...booking,
+        car: car as Car,
+      };
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   async getBooking(id: string): Promise<BookingWithCar | undefined> {
     const booking = this.bookings.get(id);
     if (!booking) return undefined;
     
+    const car = this.cars.get(booking.carId);
     return {
       ...booking,
-      car: this.cars.get(booking.carId) as Car,
+      car: car as Car,
     };
   }
 

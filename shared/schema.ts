@@ -67,20 +67,33 @@ export const insertBookingSchema = createInsertSchema(bookings)
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
 
-// Users table (for future auth)
+// Users table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey(),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  hashedPassword: text("hashed_password").notNull(),
   role: text("role").notNull().default("customer"),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
+export const insertUserSchema = z.object({
+  username: z.string().min(3, "Tên đăng nhập phải có ít nhất 3 ký tự").max(50),
+  password: z.string().min(6, "Mật khẩu phải có ít nhất 6 ký tự").max(100),
+  role: z.enum(["admin", "customer"]).default("customer"),
+});
+
+export const signupSchema = insertUserSchema.pick({
+  username: true,
+  password: true,
+});
+
+export const loginSchema = insertUserSchema.pick({
   username: true,
   password: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type SignupRequest = z.infer<typeof signupSchema>;
+export type LoginRequest = z.infer<typeof loginSchema>;
 export type User = typeof users.$inferSelect;
 
 // Helper type for booking with car details
